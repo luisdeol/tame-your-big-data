@@ -1,0 +1,227 @@
+-----------------------------HIVE--------------------------------------
+
+Hive
+
+MapReduce Tez
+
+Hadoop YARN
+
+
+Translate SQL queries to MapReduce or Tez jobs on your cluster
+
+
+Why Hive?
+
+- Uses familiar SQL syntax (HiveQL)
+- Interactice
+- Scalable - works with "big data" on a cluster
+	- Really most appropriate for data warehouse applications
+- Easy OLAP queries - WAY easier than writing MapReduce in Java.
+- Highly optimized
+- Highly extensible
+	- User defined functions
+	- Thrift server
+	- JDBC/ODBC driver
+
+Why not Hive?
+
+- High latency
+- Stores data de-normalized
+- SQL is limited in what it can do
+	- Pig, Spark allows more complex stuff
+- No transactions
+- No record-level updates, inserts, deletes
+
+
+HiveQL
+
+- Pretty much MySQL with some extensions
+- For example: views
+	- Can store results of a query into a "view", which subsequent queries can use as a table
+- Allows you to specify how structured data is stored and partitioned
+
+
+
+-----------------------------------------------------------------------
+# Find the most popular movies
+
+CREATE VIEW topMoviesIDs AS 
+SELECT movieID, count(movieID) as ratingCount
+FROM ratings
+GROUP BY movieID
+ORDER BY ratingCount DESC;
+ 
+
+SELECT n.title, ratingCount
+FROM topMoviesIDs t JOIN names n
+ON t.movieID = n.movieID;
+
+-----------------------------------------------------------------------
+
+How Hive works
+
+Schema On Read
+
+CREATE TABLE ratings (
+	userID INT,
+	movieID INT, 
+	rating INT,
+	time INT
+)
+
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS TEXTFIELD;
+
+LOAD DATA LOCAL INPATH '<path>/u.data'
+OVERWRITE INTO TABLE ratings;
+
+Where is the data?
+
+- LOAD DATA
+	MOVES data from a distributed filesystem into HIVE
+- LOAD DATA LOCAL
+	COPIES data from your local filesystem into HIVE
+- Managed vs External tables
+
+CREATE EXTERNAL TABLE ratings (
+	userID INT,
+	movieID INT, 
+	rating INT,
+	time INT
+)
+
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+LOCATION '/data/ml-100k/u.data';
+
+Partitioning
+
+- Huge optimization if your queries are only on certain partitions
+
+CREATE TABLE customers (
+	name STRING,
+	address STRUCT<street:STRING, city:STRING, state:STRING, zip:INT>
+)
+PARTITIONED BY (country STRING);
+
+Ways to use Hive
+
+- Interactive via hive / CLI
+- Saved query files
+	- hive -f /somepath/queres.hql
+- Through Ambari/Hue
+- Through JDBC/ODBC server
+- Through Thrift service
+	But remember, Hvie is not suitable for OLTP
+- Via Oozie
+
+-----------------------------------------------------------------------
+
+HIVE CHALLENGE
+
+Find the movie with the highest average rating
+
+CREATE VIEW IF NOT EXISTS avgRatings AS
+SELECT movieID, AVG(rating) as avgRating, COUNT(movieID) as ratingCount
+FROM ratings
+GROUP BY movieID,
+ORDER BY avgRating DESC;
+
+SELECT n.title, avgRating
+FROM avgRatings a JOIN names n 
+ON a.movieID = n.movieID
+WHERE ratingCount > 10;
+
+-----------------------------------------------------------------------
+
+INTEGRATING MYSQL & HADOOP
+
+What's MySQL
+
+- Popular, free relational database
+- Generally monolithic in nature
+- But, can be used for OLTP - so exporting data into MySQL can be useful
+- Existing data may exist in MySQL that you want to import to Hadoop
+
+Sqoop to the rescue
+
+
+- Actually kocks off MapReduce jobs to handle importing or exporting your data
+
+Import data from MySQL to HDFS
+
+- sqoop import --connect jdbc:mysql://localhost/movielens --driver com.mysql.jdbc.Driver --table movies
+
+- sqoop import --connect jdbc:mysql://localhost/movielens --driver com.mysql.jdbc.Driver --table movies --hive-import
+
+Incremental imports
+
+- You can keep your relational database and Hadoop in sync
+- --check-column and --last-value
+
+Export data from Hive to MySQL
+
+- sqoop import --connect jdbc:mysql://localhost/movielens -m 1 --driver com.mysql.jdbc.Driver --table exported_movies --export-dir /apps/hive/warehouse/movies --input-fields-terminated-by '\0001'
+- Target table must already exist in MySQL, with columns in expected order
+
+
+-----------------------------------------------------------------------
+
+Install MySQL
+
+mysql -u root -p 
+
+mysql> create database movielens;
+mysql> show databases;
+mysql> exit
+
+wget http://media.sundog-soft.com/hadoop/movielens.sql
+less movielens.sql
+
+mysql -u root -p 
+mysql> SET NAMES 'utf8';
+mysql> SET CHARACTER SET utf8;
+mysql> use movielens;
+mysql> source movielens.sql;
+mysql> show tables;
+mysql> select * from movies limit 10;
+mysql> describe ratings;
+mysql> select movies.title, count(ratings.movie_id) AS ratingCount 
+	FROM movies
+	INNER JOIN ratings
+	ON movies.id = ratings.movie_id
+	GROUP BY movies.title
+	ORDER BY ratingCount;
+
+-----------------------------------------------------------------------
+
+Import MySQL data to HDFS
+
+mysql -u root -p 
+mysql> GRANT ALL PRIVILEGES ON movielens.* to ''@'localhost';
+mysql> exit
+
+sqoop import --connect jdbc:mysql://localhost/movielens --driver con.mysql.jdbc.Driver --table movies -m 1
+
+sqoop import --connect jdbc:mysql://localhost/movielens --driver con.mysql.jdbc.Driver --table movies -m 1 --hive-import
+
+hive
+hive> show tables;
+
+-----------------------------------------------------------------------
+
+Import data from HIVE to MySQL
+
+mysql -u root -p
+
+mysql> use movielens;
+mysql> CREATE TABLE exported_movies (id INTEGER, title VARCHAR(255), releaseDate DATE);
+mysql> exit
+
+sqoop export --connect jdbc:mysql://localhost/movielens -m 1 --driver com.mysql.jdbc.Driver --table exported_movies --export-dir /apps/hive/warehouse/movies --input-fields-terminated-by '\0001';
+
+mysql -u root -p
+mysql> use movielens;
+mysql> select * from exported_movies limit 10;
+

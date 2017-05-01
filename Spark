@@ -1,0 +1,381 @@
+Programming Hadoop with Spark
+
+
+
+------------------Introduction to Spark------------------
+
+
+- "Fast and general engine for large-scale data processing"
+
+
+Driver Program - Spark Context -> Executor Cache Tasks
+
+			       -> Cluster Manager (Spark, YARN) -> Executor Cache Tasks
+
+
+
+- "Run programs up to 100x faster than Hadoop MapRedce in memory, or 10x faster on disk."
+
+- DAG Engine (directed acyclic graph) optimizes workflows
+
+
+Powered by Spark
+
+- Amazon
+- Ebay: log analysis and aggregation
+- Nasa JSP: Deep Space Network
+- Groupon
+- TripAdviser
+- Yahoo
+
+
+It's not that hard
+
+- Code in Python, Java, or Scala
+- Built around one main concept: the Resilient Distributed Dataset(RDD)
+
+
+
+Components of Spark
+
+SPARK CORE
+
+- Spark Streaming
+- Spark SQL
+- MLLib
+- GraphX
+
+
+Why Python?
+
+- It's a lot simpler, and this is just an overview .
+- Don't need to compile anything, deal with JAR's, dependencies, etc
+
+But...
+- Spark itself is written in Scala
+- Scala's functional programming model is a good fit for distributed processing
+- Gives you fast fast performance (Scala compiles to Java bytecode)
+- Less code & boilerplate stuff thatn Java
+- Python is slow in comparison
+
+
+
+Python Code
+
+nums = sc.parallelize([1,2,3,4])
+squared = nums.map(lambda x:  x*x).collect()
+
+Scala code
+
+val nums = sc.parallelize(List(1,2,3,4))
+val squared = nums.map(x => x*x).collect()
+
+
+----------------------------------------------------------------------
+
+The Resilient Distributed DataSet(RDD)
+
+The Spark Context
+
+
+- Created by your driver program
+- Is responsible for making RDD's resilient and distributed
+- Create RDD's
+- The Spark shell created a "sc" object for you
+
+Creating RDDs
+
+- parallelize([1,2,3,4])
+- sc.textFile("<path>")
+- hiveCtx = HiveContext(sc)
+  rows = hiveCtx.sql("SELECT name, age FROM users")
+
+Can also create from:
+
+- JDBC
+- Cassandra
+- HBase
+- Elasticsearch
+- JSON, CSV, sequence files, object files, various compressed formats
+
+Transforming RDD's
+
+- map
+- flatmap
+- filter
+- distinct
+- sample
+- union, intersection, substract, cartesian
+
+
+map example
+
+- rdd = sc.parallelize([1,2,3,4])
+- squareRDD = rdd.map(lambda x: x*x)
+
+- This yields 1,4,9,16
+
+RDD actions
+
+- collect
+- count
+- countByValue
+- take
+- top
+- reduce
+- ...and more...
+
+
+-----------------------------------------------------
+
+
+from pyspark import SparkConf, SparkContext
+
+
+def loadMovies():
+    movieNames = {}
+    with open('/home/luisdeol/Documentos/Data Analysis/Tame-Your-Big-Data/ml-100k/u.item') as f:
+        for line in f:
+            fields = line.split('|')
+            moviesNames[int(fields[0])] = fields[1]
+    return movieNames
+
+
+def parseInput(line):
+    fields = line.split()
+    return (int(fields[1]), (float(fields[2]), 1.0))
+
+if __name__ == "__main__":
+	conf = SparkConf().setAppName("WorstMovies")
+	sc = SparkContext(conf = conf)
+	
+	movieNames = loadMovies()
+	lines = sc.textFile("wasbs:///data/u.data")
+
+	movieRatings = lines.map(parseInput)
+	
+	ratingTotalsAndCount = movieRatings.reduceByKey(lambda movie1, movie2: (movie1[0] + movie2[0], movie1[1] + movie2[1]))
+	
+	averageRatings = ratingTotalsAndCount.mapValues(lambda totalAndCount: totalAndCount[0] / totalAndCount[1])
+
+	sortedMovies = averageRatings.sortBy(lambda x: x[1])
+
+	results = sortedMovies.take(10)
+
+	for result in results:
+    		print(str(result[0]) + ' ' + str(result[1]))
+
+
+------------------------------------------------------------------
+
+Extends RDD to a "DataFrame" object
+
+DataFrames:
+
+- Contain Row objects
+- Can run SQL Queries
+- Has a schema (leading to more efficient storage)
+- Read and write to JSON, Hive, parquet
+- Communicates with JDVC/ODBC, Tableau
+
+
+from pyspark.sql import SQLContext, Row
+
+hiveContext = HiveContext(sc)
+inputData = spark.read.json(dataFile)
+inputData.createOrReplaceTempVie("myStructuredStuff")
+myResultDataFrame = hiveContext.sql("SELECT foo FROM myStructuredStuff ORDER BY foobar")
+
+
+Other stuf you can do with dataframes
+
+- show()
+- select("someFieldName")
+- filter(dataFrame("someFieldName" > 200))
+- groupBy(dataFrame("someFieldName")).mean()
+- rdd().map(mapperFunction)
+
+
+
+Datasets 
+
+- in Spark 2.0, a DataFrame is a DataSet of Row objects
+- The Spark 2. way is to use DataSets instead of DataFrames when you can
+
+
+Shel Access
+
+User-defined functions (UDF's)
+
+- from pyspark.sql.types import IntegerType
+- hiveCtx.registerFunction("square", lambda x: x*x, IntegerType())
+- df = hiveCtx.sql("SELECT square('someNumericField') FROM tableName")
+
+
+----------------------------------------------------------------------
+
+from pyspark.sql import SparkSession
+from pyspark.sql import Row
+from pyspark.sql import functions
+
+def loadMoviesNames():
+	movieNames = {}
+	with open('/home/luisdeol/Documentos/Data Analysis/Tame-Your-Big-Data/ml-100k/u.item') as f:
+	for line in f:
+	    fields = line.split('|')
+	    moviesNames[int(fields[0])] = fields[1]
+	return movieNames
+
+
+def parseInput(line):
+	fields = line.value.split()
+	return Row(movieID = int(fields[1]), rating = float(fields[2]))
+
+if __name__ == "__main__":
+
+	spark = SparkSession.builder.appName("PopularMovies").getOrCreate()
+
+	movieNames = loadMoviesNames()
+	
+	lines = spark.sparkContext.textFile("<path>/.u.data")
+
+	movies = lines.map(parseInput)
+
+	movieDataset = spark.createDataFrame(movies)
+	
+	averageRatings = movieDataset.groupBy("movieID").avg("rating")
+	
+	counts = movieDataset.groupBy("movieID").count()
+
+	averagesAndCounts = counts.join(averageRatings, "movieID")
+
+	topTen = averagesAndCounts.orderBy("avg(rating)").take(10)
+
+	for movie in topTen:
+		print (movieNames[movie[0]], movie[1], mpvie[2])
+
+	spark.stop()
+
+
+> export SPARK_MAJOR_VERSION=2
+
+> spark-submit LowestRatedMovieDataFrame.py
+
+
+----------------------------------------------------------------------
+
+
+------------------Movie Recommendations with MLLib------------------
+
+from pyspark.sql import SparkSession
+from pyspark.ml.recommendation import ALS
+from pyspark.sql import Row
+from pyspark.sql.functions import lit
+
+
+def loadMoviesNames():
+	movieNames = {}
+	with open('/home/luisdeol/Documentos/Data Analysis/Tame-Your-Big-Data/ml-100k/u.item') as f:
+	for line in f:
+	    fields = line.split('|')
+	    moviesNames[int(fields[0])] = fields[1].decode('ascii', 'ignore')
+	return movieNames
+
+
+def parseInput(line):
+	fields = line.value.split()
+	return Row(userID = int(fields[0]), movieID = int(fields[1]), rating = float(fields[2]))
+
+
+if __name__ == "__main__":
+	
+	spark = SparkSession.builder.appName("MovieRecs").getOrCreate()
+
+	movieNames = loadMoviesNames()
+	
+	lines = spark.read.text("<path>/u.data").rdd
+
+	ratingsRDD = lines.map(parseInput)
+
+	# (userID, movieID, rating)
+	ratings = spark.createDataFrame(ratingsRDD).cache()
+
+	# Create an ALS collaborative filtering model for the dataset
+	als = ALS(maxIter = 5, regParam=0.01, userCol="userID", itemCol="movieID", ratingCol="rating")
+	model = als.fit(ratings)
+
+	# Add data for user ID 0 in u.data
+	print("\nRatings for user ID 0:")
+	userRatings = ratings.filter("userID = 0")
+	for rating in userRatings.collect()
+		print (movieNames[rating['movieID']], rating['rating'])
+
+	print("\nTop 20 recommendations:")
+
+	ratingCounts = ratings.groupBy("movieID").count().filter("count > 100")
+	popularMovies = ratingCounts.select("movieID").withColumn('userID', lit(0))
+	
+	# Run our model on that list of popular movies for user ID 0
+	recommendations = model.transform(popularMovies)
+
+	topRecommendations = recommendations.sort(recommendations.prediction.desc()).take(20)
+
+	for recommendation in topRecommendations:
+		print (movieNames[recommendation['movieID']], recommendation['prediction'])
+
+	spark.stop()
+
+
+> export SPARK_MAJOR_VERSION=2
+
+> spark-submit MoviesRecommendationsALS.py
+
+
+--------------------------------------------------------------------
+
+Lowest-rated movies 
+
+
+from pyspark.sql import SparkSession
+from pyspark.sql import Row
+from pyspark.sql import functions
+
+def loadMoviesNames():
+	movieNames = {}
+	with open('/home/luisdeol/Documentos/Data Analysis/Tame-Your-Big-Data/ml-100k/u.item') as f:
+	for line in f:
+	    fields = line.split('|')
+	    moviesNames[int(fields[0])] = fields[1]
+	return movieNames
+
+def parseInput(line):
+	fields = line.value.split()
+	return Row(movieID = int(fields[1]), rating = float(fields[2]))
+
+
+if __name__ == "__main__":
+	spark = SparkSession.builder.appName("PopularMovies").getOrCreate()
+
+	movieNames = loadMovieNames()
+
+	lines = spark.sparkContext.textFile("<path>/u.data")
+
+	movies = lines.map(parseInput)
+
+	movieDataset = spark.createDataFrame(movies)
+
+	averageRatings = movieDataset.groupBy("movieID").avg("rating")
+
+	counts = movieDataset.groupBy("movieID").count()
+	
+	# (movieID, avg(rating), count)
+	averageAndCounts = counts.join(averageRatings, "movieID")
+
+	popularAveragesAndCOunts = averageAndCounts.filter("count > 10")
+
+	topTen = popularAveragesAndCounts.groupBy("avg(rating)").take(10)
+
+	for movie in topTen:
+		print (movieNames[movie[0]], movie[1], movie[2])
+
+	spark.stop()
